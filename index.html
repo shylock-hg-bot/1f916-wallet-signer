@@ -71,13 +71,24 @@
   var signBtn=document.getElementById('sign'), statusEl=document.getElementById('status'),
       sigEl=document.getElementById('sig'), copyBtn=document.getElementById('copy');
   function set(html,cls){ statusEl.className='status '+(cls||''); statusEl.innerHTML=html; }
-  var eth=window.ethereum;
-  if(!eth){ set('No wallet detected in this browser. Open this URL from the wallet app (MetaMask in-app browser) or a desktop browser with MetaMask installed.', 'err'); return; }
+  function getProvider(){
+    if(window.ethereum) return window.ethereum;
+    if(window.bitkeep && window.bitkeep.ethereum) return window.bitkeep.ethereum;
+    if(window.bitget && window.bitget.ethereum) return window.bitget.ethereum;
+    if(window.web3 && window.web3.currentProvider) return window.web3.currentProvider;
+    return null;
+  }
+  function req(method, params){
+    if(eth.request) return eth.request({method:method, params:params});
+    return new Promise(function(res,rej){ eth.send({method:method, params:params}, function(e,r){ e?rej(e):res(r); }); });
+  }
+  var eth=getProvider();
+  if(!eth){ set('No wallet detected in this browser. Open this URL inside the wallet app (Bitget Wallet, MetaMask, etc.) using its DApp browser, or a desktop browser with a wallet extension.', 'err'); return; }
   signBtn.disabled=false; set('Wallet detected. Tap the button, pick the account that controls the address, and approve the signature.');
   signBtn.addEventListener('click', async function(){
     try {
       signBtn.disabled=true;
-      var accounts = await eth.request({method:'eth_requestAccounts'});
+      var accounts = await req('eth_requestAccounts',[]);
       var from = accounts && accounts[0];
       if(!from){ set('No account returned.', 'err'); signBtn.disabled=false; return; }
       if(from.toLowerCase() !== EXPECTED){
@@ -85,7 +96,7 @@
         signBtn.disabled=false; return;
       }
       set('Waiting for signature approval…');
-      var sig = await eth.request({method:'personal_sign', params:[hex(MESSAGE), from]});
+      var sig = await req('personal_sign',[hex(MESSAGE), from]);
       sigEl.value = sig; copyBtn.disabled=false;
       set('Signed. Copy the signature and send it back.','ok');
     } catch(e){
