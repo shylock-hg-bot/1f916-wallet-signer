@@ -71,20 +71,48 @@
   var signBtn=document.getElementById('sign'), statusEl=document.getElementById('status'),
       sigEl=document.getElementById('sig'), copyBtn=document.getElementById('copy');
   function set(html,cls){ statusEl.className='status '+(cls||''); statusEl.innerHTML=html; }
-  function getProvider(){
-    if(window.ethereum) return window.ethereum;
-    if(window.bitkeep && window.bitkeep.ethereum) return window.bitkeep.ethereum;
-    if(window.bitget && window.bitget.ethereum) return window.bitget.ethereum;
-    if(window.web3 && window.web3.currentProvider) return window.web3.currentProvider;
-    return null;
+  function isBitget(p){ return !!(p && (p.isBitKeep || p.isBitget || p.isBitgetWallet)); }
+  function providerName(p){
+    if(!p) return 'unknown';
+    if(isBitget(p)) return 'Bitget Wallet';
+    if(p.isMetaMask) return 'MetaMask';
+    if(p.isTrust || p.isTrustWallet) return 'Trust Wallet';
+    if(p.isOkxWallet || p.isOKExWallet) return 'OKX Wallet';
+    if(p.isCoinbaseWallet) return 'Coinbase Wallet';
+    return 'EVM wallet';
+  }
+  function evmProviders(){
+    var list=[];
+    function push(p){ if(p && list.indexOf(p)<0) list.push(p); }
+    var e=window.ethereum;
+    if(e){
+      if(Array.isArray(e.providers) && e.providers.length){ for(var i=0;i<e.providers.length;i++) push(e.providers[i]); }
+      push(e);
+    }
+    if(window.bitkeep) push(window.bitkeep.ethereum);
+    if(window.bitget) push(window.bitget.ethereum);
+    if(window.web3) push(window.web3.currentProvider);
+    return list;
   }
   function req(method, params){
     if(eth.request) return eth.request({method:method, params:params});
     return new Promise(function(res,rej){ eth.send({method:method, params:params}, function(e,r){ e?rej(e):res(r); }); });
   }
-  var eth=getProvider();
-  if(!eth){ set('No wallet detected in this browser. Open this URL inside the wallet app (Bitget Wallet, MetaMask, etc.) using its DApp browser, or a desktop browser with a wallet extension.', 'err'); return; }
-  signBtn.disabled=false; set('Wallet detected. Tap the button, pick the account that controls the address, and approve the signature.');
+  var eth=null;
+  var WANT=(qs.get('wallet')||'').toLowerCase();
+  (function(){
+    var list=evmProviders();
+    if(WANT && WANT!=='bitget'){
+      for(var i=0;i<list.length;i++){ if(!isBitget(list[i])){ eth=list[i]; break; } }
+    }
+    if(!eth){ for(var j=0;j<list.length;j++){ if(isBitget(list[j])){ eth=list[j]; break; } } }
+    if(!eth) eth=list[0]||null;
+  })();
+  if(!eth){
+    set('No wallet detected in this browser.<br>Install the <a href="https://chromewebstore.google.com/detail/bitkeep-crypto-nft-wallet/jiidiaalihmmhddjgbnbgdfflelocpak" target="_blank" rel="noopener">Bitget Wallet Chrome extension</a> and reload, or open this URL inside Bitget Wallet\'s DApp browser.', 'err');
+    return;
+  }
+  signBtn.disabled=false; set('Detected <b>'+providerName(eth)+'</b>. Tap the button, pick the account that controls the address, and approve the signature.');
   signBtn.addEventListener('click', async function(){
     try {
       signBtn.disabled=true;
