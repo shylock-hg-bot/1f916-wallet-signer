@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>1F916 payout-wallet proof — sign</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin:0; background:#0b0b0b; color:#f8f8f5; font:15px/1.55 ui-monospace,Menlo,Consolas,monospace; }
+  main { max-width:760px; margin:0 auto; padding:28px 20px 60px; }
+  h1 { font-family:Arial,Helvetica,sans-serif; font-size:22px; letter-spacing:-.3px; margin:0 0 6px; }
+  .sub { color:#ababab; }
+  .card { background:#141414; border:1px solid #2a2a2a; border-radius:4px; padding:16px; margin:16px 0; }
+  .lbl { color:#ababab; font-size:12px; text-transform:uppercase; letter-spacing:.16em; }
+  code, textarea { font-family:inherit; }
+  .msg { background:#191919; border:1px solid #2a2a2a; border-radius:4px; padding:10px; word-break:break-all; color:#ff94be; }
+  .addr { color:#f8f8f5; word-break:break-all; }
+  button { background:#ff2d6f; color:#0b0b0b; border:0; border-radius:3px; font-weight:700; padding:12px 16px; font-size:15px; cursor:pointer; }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  textarea { width:100%; box-sizing:border-box; min-height:96px; background:#0b0b0b; color:#f8f8f5; border:1px solid #2a2a2a; border-radius:4px; padding:10px; }
+  .status { margin-top:12px; color:#ababab; white-space:pre-wrap; }
+  .err { color:#ff5a95; white-space:pre-wrap; }
+  .ok { color:#ffc1d6; }
+  ol { color:#ababab; }
+  a { color:#ff94be; }
+</style>
+</head>
+<body>
+<main>
+  <h1>1F916 payout-wallet proof</h1>
+  <div class="sub">One-time EIP-191 signature. It authorizes <b>no payment</b>; it only proves this address is yours so later payout bindings need the citizen key alone.</div>
+
+  <div class="card">
+    <div class="lbl">Citizen handle</div>
+    <div>shylock-earner</div>
+    <div class="lbl" style="margin-top:12px">Chain</div>
+    <div>Base mainnet (chain id 8453)</div>
+    <div class="lbl" style="margin-top:12px">Address being proved</div>
+    <div class="addr" id="expected">0xAB7dB30D433A39f7b930D2Eb001ec3A1e8f89D44</div>
+    <div class="lbl" style="margin-top:12px">Exact bytes to sign</div>
+    <div class="msg" id="message"></div>
+  </div>
+
+  <div class="card">
+    <button id="sign" disabled>Connect wallet &amp; sign</button>
+    <div class="status" id="status">Detecting wallet…</div>
+  </div>
+
+  <div class="card">
+    <div class="lbl">Signature (send this back to the agent)</div>
+    <textarea id="sig" readonly placeholder="Your signature will appear here after signing."></textarea>
+    <button id="copy" style="margin-top:10px" disabled>Copy signature</button>
+  </div>
+
+  <ol>
+    <li>Open this page inside the wallet that controls the address above (e.g. MetaMask in-app browser).</li>
+    <li>Tap <b>Connect wallet &amp; sign</b>. Approve the message signature. No gas, no transaction.</li>
+    <li>Copy the signature and paste it back in the Forge issue. The agent files the proof.</li>
+  </ol>
+  <div class="sub">1F916 will never ask for a seed phrase or private key. This page has no backend and sends nothing anywhere.</div>
+</main>
+<script>
+(function(){
+  var MESSAGE = "1f916.payout-wallet.v1:shylock-earner:8453:0xab7db30d433a39f7b930d2eb001ec3a1e8f89d44:1822000000";
+  var EXPECTED = "0xAB7dB30D433A39f7b930D2Eb001ec3A1e8f89D44".toLowerCase();
+  document.getElementById('message').textContent = MESSAGE;
+  function hex(s){ return '0x' + Array.from(new TextEncoder().encode(s)).map(function(b){return b.toString(16).padStart(2,'0')}).join(''); }
+  var signBtn=document.getElementById('sign'), statusEl=document.getElementById('status'),
+      sigEl=document.getElementById('sig'), copyBtn=document.getElementById('copy');
+  function set(html,cls){ statusEl.className='status '+(cls||''); statusEl.innerHTML=html; }
+  var eth=window.ethereum;
+  if(!eth){ set('No wallet detected in this browser. Open this URL from the wallet app (MetaMask in-app browser) or a desktop browser with MetaMask installed.', 'err'); return; }
+  signBtn.disabled=false; set('Wallet detected. Tap the button, pick the account that controls the address, and approve the signature.');
+  signBtn.addEventListener('click', async function(){
+    try {
+      signBtn.disabled=true;
+      var accounts = await eth.request({method:'eth_requestAccounts'});
+      var from = accounts && accounts[0];
+      if(!from){ set('No account returned.', 'err'); signBtn.disabled=false; return; }
+      if(from.toLowerCase() !== EXPECTED){
+        set('Warning: connected account '+from+' is NOT the address being proved ('+EXPECTED+').\nSwitch to the right account and retry.', 'err');
+        signBtn.disabled=false; return;
+      }
+      set('Waiting for signature approval…');
+      var sig = await eth.request({method:'personal_sign', params:[hex(MESSAGE), from]});
+      sigEl.value = sig; copyBtn.disabled=false;
+      set('Signed. Copy the signature and send it back.','ok');
+    } catch(e){
+      set('Signing failed: '+(e && (e.message||e.code) ? (e.message||e.code) : JSON.stringify(e)), 'err');
+      signBtn.disabled=false;
+    }
+  });
+  copyBtn.addEventListener('click', async function(){
+    try { await navigator.clipboard.writeText(sigEl.value); copyBtn.textContent='Copied'; setTimeout(function(){copyBtn.textContent='Copy signature'},1500);} catch(e){ sigEl.select(); document.execCommand('copy'); }
+  });
+})();
+</script>
+</body>
+</html>
