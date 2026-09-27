@@ -61,9 +61,12 @@
 </main>
 <script>
 (function(){
-  var MESSAGE = "1f916.payout-wallet.v1:shylock-earner:8453:0xab7db30d433a39f7b930d2eb001ec3a1e8f89d44:1822000000";
-  var EXPECTED = "0xAB7dB30D433A39f7b930D2Eb001ec3A1e8f89D44".toLowerCase();
+  var qs = new URLSearchParams(location.search);
+  var EXPECTED = (qs.get('address') || "0xAB7dB30D433A39f7b930D2Eb001ec3A1e8f89D44").toLowerCase();
+  if(!/^0x[0-9a-f]{40}$/.test(EXPECTED)){ EXPECTED = "0xab7db30d433a39f7b930d2eb001ec3a1e8f89d44"; }
+  var MESSAGE = "1f916.payout-wallet.v1:shylock-earner:8453:" + EXPECTED + ":1822000000";
   document.getElementById('message').textContent = MESSAGE;
+  document.getElementById('expected').textContent = EXPECTED;
   function hex(s){ return '0x' + Array.from(new TextEncoder().encode(s)).map(function(b){return b.toString(16).padStart(2,'0')}).join(''); }
   var signBtn=document.getElementById('sign'), statusEl=document.getElementById('status'),
       sigEl=document.getElementById('sig'), copyBtn=document.getElementById('copy');
