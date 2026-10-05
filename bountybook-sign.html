@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BountyBook login signer — sign a login nonce</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin:0; background:#0b0b0b; color:#f8f8f5; font:15px/1.55 ui-monospace,Menlo,Consolas,monospace; }
+  main { max-width:760px; margin:0 auto; padding:28px 20px 60px; }
+  h1 { font-family:Arial,Helvetica,sans-serif; font-size:22px; letter-spacing:-.3px; margin:0 0 6px; }
+  .sub { color:#ababab; }
+  .card { background:#141414; border:1px solid #2a2a2a; border-radius:4px; padding:16px; margin:16px 0; }
+  .lbl { color:#ababab; font-size:12px; text-transform:uppercase; letter-spacing:.16em; }
+  code, textarea { font-family:inherit; }
+  .msg { background:#191919; border:1px solid #2a2a2a; border-radius:4px; padding:10px; word-break:break-all; color:#94c9ff; }
+  .addr { color:#f8f8f5; word-break:break-all; }
+  button { background:#ff2d6f; color:#0b0b0b; border:0; border-radius:3px; font-weight:700; padding:12px 16px; font-size:15px; cursor:pointer; }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  textarea { width:100%; box-sizing:border-box; min-height:96px; background:#0b0b0b; color:#f8f8f5; border:1px solid #2a2a2a; border-radius:4px; padding:10px; }
+  .status { margin-top:12px; color:#ababab; white-space:pre-wrap; }
+  .err { color:#ff5a95; white-space:pre-wrap; }
+  .ok { color:#ffc1d6; }
+  ol { color:#ababab; }
+  a { color:#94c9ff; }
+  .warn { color:#ffd27a; }
+</style>
+</head>
+<body>
+<main>
+  <h1>BountyBook login signer</h1>
+  <div class="sub">Signs <strong>only</strong> a BountyBook login nonce, using <code>personal_sign</code>. It authorizes no transaction, no USDC transfer and no gas, and sends nothing anywhere.</div>
+
+  <div class="card">
+    <div class="lbl">Message to sign (must start with <code>bounty:</code>)</div>
+    <div class="msg" id="message">(none)</div>
+    <div style="margin-top:8px"><input id="msgInput" placeholder="bounty:&lt;hex&gt;:&lt;unix&gt;" style="width:100%;box-sizing:border-box;background:#0b0b0b;color:#f8f8f5;border:1px solid #2a2a2a;border-radius:4px;padding:10px" /></div>
+    <div style="margin-top:8px"><button id="useMsg" type="button" style="background:#2a2a2a;color:#f8f8f5">Use this message</button></div>
+  </div>
+
+  <div class="card">
+    <div class="lbl">Wallet address that must sign</div>
+    <div class="addr" id="expected">0xAB7dB30D433A39f7b930D2Eb001ec3A1e8f89D44</div>
+    <button id="sign" type="button" disabled>Connect wallet and sign login nonce</button>
+    <div class="status" id="status">Loading…</div>
+  </div>
+
+  <div class="card">
+    <div class="lbl">Signature (reply with this + the exact message)</div>
+    <textarea id="sig" readonly placeholder="0x…"></textarea>
+    <div style="margin-top:8px"><button id="copy" type="button" disabled>Copy signature</button></div>
+  </div>
+
+  <div class="card">
+    <div class="lbl">How to get a fresh nonce</div>
+    <ol>
+      <li>Open <a id="nonceLink" target="_blank" rel="noopener">the BountyBook nonce endpoint</a> in a normal browser tab.</li>
+      <li>Copy the <code>nonce</code> value from the JSON.</li>
+      <li>Paste it above and tap “Use this message”, then sign with the wallet.</li>
+      <li>Reply on the Forgejo issue with the message and the signature so the agent can call <code>/auth/verify</code> and submit.</li>
+    </ol>
+    <div class="warn">Nonces can expire; if verification fails, fetch a fresh nonce and sign again.</div>
+  </div>
+</main>
+<script>
+(function(){
+  var qs = new URLSearchParams(location.search);
+  var EXPECTED = (qs.get('address') || "0xAB7dB30D433A39f7b930D2Eb001ec3A1e8f89D44").toLowerCase();
+  if(!/^0x[0-9a-f]{40}$/.test(EXPECTED)){ EXPECTED = "0xab7db30d433a39f7b930d2eb001ec3a1e8f89d44"; }
+  document.getElementById('expected').textContent = EXPECTED;
+  document.getElementById('nonceLink').href = "https://api.bountybook.ai/auth/nonce?address=" + EXPECTED;
+
+  var NONCE_RE = /^bounty:[0-9a-fA-F]{16,64}:[0-9]{9,12}$/;
+  var MESSAGE = null;
+  var msgEl = document.getElementById('message');
+  var msgInput = document.getElementById('msgInput');
+  function setMessage(m){
+    m = (m || '').trim();
+    if(!NONCE_RE.test(m)){ MESSAGE = null; msgEl.textContent = '(invalid — must match bounty:<hex>:<unix>)'; return false; }
+    MESSAGE = m; msgEl.textContent = m; msgInput.value = m; return true;
+  }
+  setMessage(qs.get('message') || '');
+  document.getElementById('useMsg').addEventListener('click', function(){ setMessage(msgInput.value); update(); });
+
+  function hex(s){ return '0x' + Array.from(new TextEncoder().encode(s)).map(function(b){return b.toString(16).padStart(2,'0')}).join(''); }
+  var signBtn=document.getElementById('sign'), statusEl=document.getElementById('status'),
+      sigEl=document.getElementById('sig'), copyBtn=document.getElementById('copy');
+  function set(html,cls){ statusEl.className='status '+(cls||''); statusEl.innerHTML=html; }
+  function isBitget(p){ return !!(p && (p.isBitKeep || p.isBitget || p.isBitgetWallet)); }
+  function providerName(p){
+    if(!p) return 'unknown';
+    if(isBitget(p)) return 'Bitget Wallet';
+    if(p.isMetaMask) return 'MetaMask';
+    if(p.isTrust || p.isTrustWallet) return 'Trust Wallet';
+    if(p.isOkxWallet || p.isOKExWallet) return 'OKX Wallet';
+    if(p.isCoinbaseWallet) return 'Coinbase Wallet';
+    return 'EVM wallet';
+  }
+  function evmProviders(){
+    var list=[];
+    function push(p){ if(p && list.indexOf(p)<0) list.push(p); }
+    var e=window.ethereum;
+    if(e){
+      if(Array.isArray(e.providers) && e.providers.length){ for(var i=0;i<e.providers.length;i++) push(e.providers[i]); }
+      push(e);
+    }
+    if(window.bitkeep) push(window.bitkeep.ethereum);
+    if(window.bitget) push(window.bitget.ethereum);
+    if(window.web3) push(window.web3.currentProvider);
+    return list;
+  }
+  function req(method, params){
+    if(eth.request) return eth.request({method:method, params:params});
+    return new Promise(function(res,rej){ eth.send({method:method, params:params}, function(e,r){ e?rej(e):res(r); }); });
+  }
+  var eth=null;
+  var WANT=(qs.get('wallet')||'').toLowerCase();
+  (function(){
+    var list=evmProviders();
+    if(WANT && WANT!=='bitget'){
+      for(var i=0;i<list.length;i++){ if(!isBitget(list[i])){ eth=list[i]; break; } }
+    }
+    if(!eth){ for(var j=0;j<list.length;j++){ if(isBitget(list[j])){ eth=list[j]; break; } } }
+    if(!eth) eth=list[0]||null;
+  })();
+  function update(){
+    if(!eth){ signBtn.disabled=true; return; }
+    signBtn.disabled = !MESSAGE;
+  }
+  if(!eth){
+    set('No wallet detected. Install the <a href="https://chromewebstore.google.com/detail/bitkeep-crypto-nft-wallet/jiidiaalihmmhddjgbnbgdfflelocpak" target="_blank" rel="noopener">Bitget Wallet extension</a> or open this URL in Bitget Wallet\'s DApp browser.', 'err');
+    return;
+  }
+  update();
+  set('Detected <b>'+providerName(eth)+'</b>. ' + (MESSAGE ? 'Wallet and message ready — tap to sign.' : 'Paste a valid BountyBook nonce above first.'));
+  signBtn.addEventListener('click', async function(){
+    if(!MESSAGE){ set('No valid BountyBook nonce loaded.', 'err'); return; }
+    try {
+      signBtn.disabled=true;
+      var accounts = await req('eth_requestAccounts',[]);
+      var from = accounts && accounts[0];
+      if(!from){ set('No account returned.', 'err'); signBtn.disabled=false; return; }
+      if(from.toLowerCase() !== EXPECTED){
+        set('Warning: connected account '+from+' is NOT the address being proved ('+EXPECTED+').\nSwitch to the right account and retry.', 'err');
+        signBtn.disabled=false; return;
+      }
+      set('Waiting for signature approval…');
+      var sig = await req('personal_sign',[hex(MESSAGE), from]);
+      sigEl.value = sig; copyBtn.disabled=false;
+      set('Signed. Reply with the exact message above and this signature.','ok');
+    } catch(e){
+      set('Signing failed: '+(e && (e.message||e.code) ? (e.message||e.code) : JSON.stringify(e)), 'err');
+      signBtn.disabled=false;
+    }
+  });
+  copyBtn.addEventListener('click', async function(){
+    try { await navigator.clipboard.writeText(sigEl.value); copyBtn.textContent='Copied'; setTimeout(function(){ copyBtn.textContent='Copy signature'; },1500);} catch(e){ sigEl.select(); document.execCommand('copy'); }
+  });
+})();
+</script>
+</body>
+</html>
